@@ -52,6 +52,9 @@ async def main():
         )
         user.add_handler(RawUpdateHandler(vc_raw_update))
         await user.start()
+            from handlers.vc import check_access
+            await check_access(user)
+            print(f"User client @{user.me.username} started (VC sync enabled)")
         print(f"User client @{user.me.username} started (VC sync enabled)")
     else:
         print("VC sync DISABLED - set USER_SESSION in config.py")
