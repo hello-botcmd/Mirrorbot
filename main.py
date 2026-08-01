@@ -3,14 +3,13 @@ import logging
 
 from pyrogram import Client, filters
 from pyrogram.handlers import (
-    DeletedMessagesHandler,
     EditedMessageHandler,
     MessageHandler,
     RawUpdateHandler,
 )
 
 import config
-from handlers.delete import sync_delete
+from handlers.delete import sync_delete_raw
 from handlers.mirror import mirror, mirror_edit
 from handlers.ping import ping
 from handlers.vc import vc_raw_update, check_access
@@ -19,7 +18,9 @@ logging.basicConfig(level=logging.INFO)
 
 
 async def main():
-    # ------------------- BOT (mirror, delete, ping) -------------------
+    # ------------------- BOT (mirror, edit sync, ping) -------------------
+    # NOTE: no DeletedMessagesHandler here - Telegram sends no deletion
+    # events to bot accounts. Delete sync lives on the user client below.
     bot = Client(
         "mirror_bot",
         api_id=config.API_ID,
@@ -27,29 +28,22 @@ async def main():
         bot_token=config.BOT_TOKEN,
     )
 
-    # A -> B mirroring (single posts + albums, excludes service messages)
     bot.add_handler(
         MessageHandler(mirror, filters.chat(config.CHANNEL_A) & ~filters.service)
     )
-    # Edit sync (text / captions)
     bot.add_handler(
         EditedMessageHandler(mirror_edit, filters.chat(config.CHANNEL_A))
     )
-    # Delete sync (chat check also done inside the handler)
-    bot.add_handler(DeletedMessagesHandler(sync_delete))
-    # /ping
     bot.add_handler(MessageHandler(ping, filters.command("ping")))
 
     await bot.start()
     print(f"Bot @{bot.me.username} is running (A -> B mirror active)")
 
-    # ------------------- USER CLIENT (VC sync, optional) -------------------
+    # --------------- USER CLIENT (VC sync + delete sync) -----------------
     session = (config.USER_SESSION or "").strip()
 
-    # Sanity check: a valid pyrogram session string is ~370 chars of base64.
-    # Anything far shorter means it's empty/truncated -> don't even try.
     if session and len(session) < 300:
-        print("[VC] USER_SESSION looks too short/truncated - VC sync disabled")
+        print("[VC] USER_SESSION looks too short/truncated - user features disabled")
         session = ""
 
     if session:
@@ -60,21 +54,20 @@ async def main():
                 api_hash=config.API_HASH,
                 session_string=session,
             )
-            user.add_handler(RawUpdateHandler(vc_raw_update))
+            user.add_handler(RawUpdateHandler(vc_raw_update))      # VC mirror
+            user.add_handler(RawUpdateHandler(sync_delete_raw))    # delete mirror
             await user.start()
-            print(f"User client @{user.me.username} started (VC sync enabled)")
+            print(f"User client @{user.me.username} started (VC sync + delete sync enabled)")
 
-            # Confirm the user account can see A and manage B
             await check_access(user)
         except Exception as e:
-            print(f"[VC] User client failed to start, VC sync disabled: {e}")
+            print(f"[USER] User client failed to start, VC/delete sync disabled: {e}")
     else:
         print(
-            "[VC] USER_SESSION not set - VC sync disabled "
-            "(mirror/delete/ping still work)"
+            "[USER] USER_SESSION not set - VC sync AND delete sync disabled "
+            "(mirror/ping still work)"
         )
 
-    # ------------------- RUN FOREVER -------------------
     await asyncio.Future()
 
 
