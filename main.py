@@ -13,12 +13,13 @@ import config
 from handlers.delete import sync_delete
 from handlers.mirror import mirror, mirror_edit
 from handlers.ping import ping
-from handlers.vc import vc_raw_update
+from handlers.vc import vc_raw_update, check_access
 
 logging.basicConfig(level=logging.INFO)
 
 
 async def main():
+    # ------------------- BOT (mirror, delete, ping) -------------------
     bot = Client(
         "mirror_bot",
         api_id=config.API_ID,
@@ -42,24 +43,39 @@ async def main():
     await bot.start()
     print(f"Bot @{bot.me.username} is running (A -> B mirror active)")
 
-    # Voice chat sync requires a user session
-    if config.USER_SESSION:
-        user = Client(
-            "user_session",
-            api_id=config.API_ID,
-            api_hash=config.API_HASH,
-            session_string=config.USER_SESSION,
-        )
-        user.add_handler(RawUpdateHandler(vc_raw_update))
-        await user.start()
-from handlers.vc import check_access
-            await check_access(user)
-            print(f"User client @{user.me.username} started (VC sync enabled)")
-        print(f"User client @{user.me.username} started (VC sync enabled)")
-    else:
-        print("VC sync DISABLED - set USER_SESSION in config.py")
+    # ------------------- USER CLIENT (VC sync, optional) -------------------
+    session = (config.USER_SESSION or "").strip()
 
-    await asyncio.Future()  # run forever
+    # Sanity check: a valid pyrogram session string is ~370 chars of base64.
+    # Anything far shorter means it's empty/truncated -> don't even try.
+    if session and len(session) < 300:
+        print("[VC] USER_SESSION looks too short/truncated - VC sync disabled")
+        session = ""
+
+    if session:
+        try:
+            user = Client(
+                "user_session",
+                api_id=config.API_ID,
+                api_hash=config.API_HASH,
+                session_string=session,
+            )
+            user.add_handler(RawUpdateHandler(vc_raw_update))
+            await user.start()
+            print(f"User client @{user.me.username} started (VC sync enabled)")
+
+            # Confirm the user account can see A and manage B
+            await check_access(user)
+        except Exception as e:
+            print(f"[VC] User client failed to start, VC sync disabled: {e}")
+    else:
+        print(
+            "[VC] USER_SESSION not set - VC sync disabled "
+            "(mirror/delete/ping still work)"
+        )
+
+    # ------------------- RUN FOREVER -------------------
+    await asyncio.Future()
 
 
 if __name__ == "__main__":
