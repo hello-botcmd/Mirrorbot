@@ -14,7 +14,7 @@ import runtime
 from handlers.delete import poll_deleted, sync_delete_raw
 from handlers.mirror import mirror, mirror_edit
 from handlers.ping import ping
-from handlers.vc import vc_button, welcome
+from handlers.vc import vc_button, vc_raw_update, welcome
 
 logging.basicConfig(level=logging.INFO)
 
@@ -58,12 +58,12 @@ async def main():
             )
             runtime.user = user
 
-            user.add_handler(RawUpdateHandler(sync_delete_raw))  # instant delete
+            user.add_handler(RawUpdateHandler(vc_raw_update))      # remember calls
+            user.add_handler(RawUpdateHandler(sync_delete_raw))    # instant delete
             await user.start()
             print(f"User client @{user.me.username} started (VC buttons + delete)")
 
-            # Delete safety net - now on the USER client,
-            # because bots cannot read channel history (BOT_METHOD_INVALID)
+            # Delete safety net - on the USER client (bots can't read channel history)
             asyncio.create_task(poll_deleted(user))
         except Exception as e:
             print(f"[USER] User client failed: {type(e).__name__}: {e}")
