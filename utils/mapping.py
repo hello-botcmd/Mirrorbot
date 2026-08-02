@@ -11,3 +11,6 @@ def find_mapping(src_chat, src_msg):
 
 def remove_mapping(src_chat, src_msg):
     delete_mapping(src_chat, src_msg)
+
+def list_mappings():
+    return get_all_mappings()
