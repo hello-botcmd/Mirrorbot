@@ -18,6 +18,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 async def main():
+    # ------------------- BOT -------------------
     bot = Client(
         "mirror_bot",
         api_id=config.API_ID,
@@ -36,13 +37,14 @@ async def main():
     await bot.start()
     print(f"Bot @{bot.me.username} is running (A -> B mirror active)")
 
-    # Delete sync - works with bot rights alone
+    # Delete sync - works with bot rights alone (polling)
     asyncio.create_task(poll_deleted(bot))
 
-    # Optional user client: adds instant delete events + VC sync
+    # ------------------- USER CLIENT (VC + instant delete) -------------------
     session = (config.USER_SESSION or "").strip()
+
     if session and len(session) < 300:
-        print("[USER] USER_SESSION too short/truncated - user features disabled")
+        print("[USER] USER_SESSION looks too short/truncated - user features disabled")
         session = ""
 
     if session:
@@ -60,6 +62,11 @@ async def main():
             await check_access(user)
         except Exception as e:
             print(f"[USER] User client failed to start, VC/instant-delete disabled: {e}")
+    else:
+        print(
+            "[USER] USER_SESSION not set - VC sync and instant delete are DISABLED "
+            "(poll-based delete still works)"
+        )
 
     await asyncio.Future()
 
