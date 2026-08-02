@@ -8,7 +8,7 @@ import config
 from handlers.delete import sync_delete_raw, poll_deleted
 from handlers.mirror import mirror, mirror_edit
 from handlers.ping import ping
-from handlers.vc import vc_poll, check_access
+from handlers.vc import check_access, vc_raw_update, vc_reconcile
 
 logging.basicConfig(level=logging.INFO)
 
@@ -31,11 +31,9 @@ async def main():
 
     await bot.start()
     print(f"Bot @{bot.me.username} is running (A -> B mirror active)")
-
-    # Delete sync - works with bot rights alone
     asyncio.create_task(poll_deleted(bot))
 
-    # ------------------- USER (required for VC) -------------------
+    # ------------------- USER (VC sync + instant delete) -------------------
     session = (config.USER_SESSION or "").strip()
     if session and len(session) < 300:
         print("[USER] USER_SESSION truncated - run: python login.py")
@@ -49,17 +47,17 @@ async def main():
                 api_hash=config.API_HASH,
                 session_string=session,
             )
-            user.add_handler(RawUpdateHandler(sync_delete_raw))  # instant delete bonus
+            user.add_handler(RawUpdateHandler(vc_raw_update))     # instant VC sync
+            user.add_handler(RawUpdateHandler(sync_delete_raw))   # instant delete sync
             await user.start()
-            print(f"User client @{user.me.username} started")
+            print(f"User client @{user.me.username} started (VC + instant delete)")
 
             await check_access(user)
-            asyncio.create_task(vc_poll(user))   # <- the simple VC flow
+            asyncio.create_task(vc_reconcile(user))  # 10s safety net
         except Exception as e:
             print(f"[USER] User client failed: {type(e).__name__}: {e}")
     else:
-        print("[USER] USER_SESSION not set -> VC mirror is OFF "
-              "(mirror/delete/ping still work)")
+        print("[USER] USER_SESSION not set -> VC sync is OFF")
 
     await asyncio.Future()
 
