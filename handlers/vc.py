@@ -10,7 +10,7 @@ log = logging.getLogger("vc")
 
 
 def raw_peer_id(full_chat_id: int) -> int:
-    """-1004428509253 -> -4428509253 (raw API peer id for channels)."""
+    """-1004428509253 -> -4428509253 (raw id used inside MTProto updates)."""
     s = str(full_chat_id)
     if s.startswith("-100"):
         return -int(s[4:])
@@ -75,16 +75,12 @@ async def vc_raw_update(client: Client, update, users, chats):
     """Mirror VC start/end from A to B."""
     if not isinstance(update, types.UpdateGroupCall):
         return
-
-    # This print tells you whether updates are arriving at all
     print(
         f"[VC] Update received: chat={update.chat_id} "
         f"(A raw={raw_peer_id(CHANNEL_A)}) call={type(update.call).__name__}"
     )
-
     if update.chat_id != raw_peer_id(CHANNEL_A):
         return
-
     call = update.call
     if isinstance(call, types.GroupCallDiscarded):
         await stop_vc(client)
