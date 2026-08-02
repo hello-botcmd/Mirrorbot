@@ -8,9 +8,10 @@ from utils.mapping import find_mapping, remove_mapping, list_mappings
 
 
 def raw_peer_id(full_chat_id: int) -> int:
+    """-1004428509253 -> -4428509253 (raw id used inside MTProto updates)."""
     s = str(full_chat_id)
     if s.startswith("-100"):
-        return -int(s[4:])  # -1004428509253 -> -4428509253
+        return -int(s[4:])
     return full_chat_id
 
 
@@ -31,7 +32,7 @@ async def _delete_mirror(client: Client, src_msg_id: int):
 
 
 async def sync_delete_raw(client: Client, update, users, chats):
-    """Instant path - only fires if the USER client is alive."""
+    """Instant path - fires only if the USER client is alive."""
     if not isinstance(update, types.UpdateDeleteChannelMessages):
         return
     if update.channel_id != raw_peer_id(CHANNEL_A):
@@ -41,11 +42,10 @@ async def sync_delete_raw(client: Client, update, users, chats):
 
 
 async def poll_deleted(client: Client, window: int = 100, interval: float = 8.0):
-    """Bot-side detection: fetch A's last `window` posts, delete any
-    mirrored post whose source id is no longer there. Albiter-based, so
-    albums are handled automatically. NO user session needed."""
-    print(f"[DEL-POLL] watching last {window} posts of A every {interval}s "
-          f"(uses bot admin rights only)")
+    """Bot-side detection: compare A's last `window` posts against the
+    mapping table and delete any mirrored post whose source vanished.
+    NO user session needed - works with bot admin rights only."""
+    print(f"[DEL-POLL] watching last {window} posts of A every {interval}s")
     while True:
         try:
             existing = set()
