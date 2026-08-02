@@ -36,8 +36,10 @@ async def mirror(client: Client, message):
 
 async def mirror_edit(client: Client, message):
     """Sync text/caption edits of already-mirrored posts."""
+    if message.chat.id != CHANNEL_A or message.media_group_id:
+        return
     mapping = find_mapping(CHANNEL_A, message.id)
-    if not mapping or message.media_group_id:
+    if not mapping:
         return
     try:
         if message.text:
