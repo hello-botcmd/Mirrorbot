@@ -3,24 +3,21 @@ import random
 
 from pyrogram import Client
 from pyrogram.raw import functions, types
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import CHANNEL_A, CHANNEL_B
 
-
-def raw_peer_id(full_chat_id: int) -> int:
-    """-1004428509253 -> -4428509253 (raw id used inside MTProto updates)."""
-    s = str(full_chat_id)
-    if s.startswith("-100"):
-        return -int(s[4:])
-    return full_chat_id
+VC_START = "vc:start"
+VC_END = "vc:end"
+VC_TITLE = "Live"   # same title applied in both channels (change freely)
 
 
-async def _b_call(client: Client):
-    """Live (non-discarded, non-scheduled) call currently in B, or None."""
+async def _call_in(client: Client, cid: int):
+    """Live (non-discarded, non-scheduled) voice chat in cid, or None."""
     try:
         full = await client.invoke(
             functions.channels.GetFullChannel(
-                channel=await client.resolve_peer(CHANNEL_B)
+                channel=await client.resolve_peer(cid)
             )
         )
         gid = getattr(full.full_chat, "groupcall_id", 0) or 0
@@ -39,108 +36,80 @@ async def _b_call(client: Client):
         return None
 
 
-async def start_vc(client: Client, title: str = ""):
-    """Start a live VC in B, or just sync the title if one already exists."""
-    existing = await _b_call(client)
-    if existing:
-        try:
+async def _start_in(client: Client, cid: int, title: str = VC_TITLE):
+    try:
+        existing = await _call_in(client, cid)
+        if existing:
             await client.invoke(
                 functions.phone.EditGroupCallTitle(call=existing, title=title)
             )
-            print(f"[VC] B already has a call - title synced to {title!r}")
-        except Exception as e:
-            print(f"[VC] title sync failed: {type(e).__name__}: {e}")
-        return
-    try:
+            return f"[VC] {cid}: already live, title synced"
         await client.invoke(
             functions.phone.CreateGroupCall(
-                peer=await client.resolve_peer(CHANNEL_B),
-                random_id=random.randint(-2**31, 2**31 - 1),  # MUST be 32-bit
-                title=title or "",
+                peer=await client.resolve_peer(cid),
+                random_id=random.randint(-(2**31), 2**31 - 1),
+                title=title,
             )
         )
-        print(f"[VC] STARTED voice chat in B (title {title!r})")
+        return f"[VC] {cid}: STARTED"
     except Exception as e:
-        print(f"[VC] FAILED to start VC in B: {type(e).__name__}: {e}")
+        return f"[VC] {cid}: FAILED {type(e).__name__}: {e}"
 
 
-async def stop_vc(client: Client):
-    call = await _b_call(client)
-    if not call:
-        print("[VC] No live call in B - nothing to end")
-        return
+async def _end_in(client: Client, cid: int):
     try:
-        await client.invoke(functions.phone.DiscardGroupCall(call=call))
-        print("[VC] ENDED voice chat in B")
+        existing = await _call_in(client, cid)
+        if not existing:
+            return f"[VC] {cid}: no live call, nothing to end"
+        await client.invoke(functions.phone.DiscardGroupCall(call=existing))
+        return f"[VC] {cid}: ENDED"
     except Exception as e:
-        print(f"[VC] FAILED to end VC in B: {type(e).__name__}: {e}")
+        return f"[VC] {cid}: FAILED {type(e).__name__}: {e}"
 
 
-async def vc_raw_update(client: Client, update, users, chats):
-    """INSTANT path: fired the moment the VC in A changes.
-       VC starts in A -> starts in B.  Ends in A -> ends in B."""
-    if not isinstance(update, types.UpdateGroupCall):
+def vc_buttons():
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("VC Start", callback_data=VC_START),
+                InlineKeyboardButton("VC End", callback_data=VC_END),
+            ]
+        ]
+    )
+
+
+async def welcome(client: Client, message):
+    """Small welcome message + control buttons."""
+    await message.reply(
+        "Welcome!\n"
+        "VC Start -> starts the voice chat in BOTH channels.\n"
+        "VC End -> ends the voice chat in BOTH channels.",
+        reply_markup=vc_buttons(),
+    )
+
+
+async def vc_button(client: Client, callback_query):
+    """Start/end the voice chat in A and B together."""
+    from runtime import user
+
+    if not user or not user.is_connected:
+        await callback_query.answer(
+            "User account not connected. Run python login.py and restart.",
+            show_alert=True,
+        )
         return
-    if update.chat_id != raw_peer_id(CHANNEL_A):
-        return
-    call = update.call
-    if isinstance(call, types.GroupCallDiscarded):
-        print("[VC] raw update: A's call ENDED")
-        await stop_vc(client)
-    elif isinstance(call, types.GroupCall):
-        if call.schedule_date:
-            print("[VC] raw update: scheduled call in A - ignoring")
-            return
-        print("[VC] raw update: A's call STARTED")
-        await start_vc(client, getattr(call, "title", "") or "")
 
-
-async def vc_reconcile(client: Client, interval: float = 10.0):
-    """Slow safety net: only fixes state if a raw update was ever missed."""
-    print(f"[VC] safety-net state check every {interval}s")
-    last_a = None
-    while True:
-        try:
-            full = await client.invoke(
-                functions.channels.GetFullChannel(
-                    channel=await client.resolve_peer(CHANNEL_A)
-                )
-            )
-            gid = getattr(full.full_chat, "groupcall_id", 0) or 0
-            ah = getattr(full.full_chat, "groupcall_access_hash", 0) or 0
-            a_on = False
-            a_title = ""
-            if gid:
-                try:
-                    res = await client.invoke(
-                        functions.phone.GetGroupCall(
-                            call=types.InputGroupCall(id=gid, access_hash=ah)
-                        )
-                    )
-                    a_on = not isinstance(res.call, types.GroupCallDiscarded)
-                    a_title = getattr(res.call, "title", "") or ""
-                except Exception:
-                    a_on = False
-            if a_on != last_a:
-                if a_on:
-                    print("[VC] recon: A has a live call")
-                    await start_vc(client, title=a_title)
-                else:
-                    print("[VC] recon: A's call is gone")
-                    await stop_vc(client)
-                last_a = a_on
-        except Exception as e:
-            print(f"[VC] reconcile error: {type(e).__name__}: {e}")
-        await asyncio.sleep(interval)
-
-
-async def check_access(client: Client):
-    me = await client.get_me()
-    for name, cid in (("A", CHANNEL_A), ("B", CHANNEL_B)):
-        try:
-            member = await client.get_chat_member(cid, me.id)
-            print(f"[VC] User account in channel {name}: {member.status}")
-        except Exception:
-            print(
-                f"[VC] WARNING: user account is NOT in channel {name} ({cid})"
-            )
+    if callback_query.data == VC_START:
+        await callback_query.answer("Starting voice chats in both channels...")
+        results = await asyncio.gather(
+            _start_in(user, CHANNEL_A),
+            _start_in(user, CHANNEL_B),
+        )
+        await callback_query.message.reply("\n".join(results))
+    elif callback_query.data == VC_END:
+        await callback_query.answer("Ending voice chats in both channels...")
+        results = await asyncio.gather(
+            _end_in(user, CHANNEL_A),
+            _end_in(user, CHANNEL_B),
+        )
+        await callback_query.message.reply("\n".join(results))
