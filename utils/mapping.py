@@ -1,4 +1,4 @@
-from database import add_mapping, get_mapping, delete_mapping
+from database import add_mapping, get_mapping, delete_mapping, get_all_mappings
 
 
 def save_mapping(src_chat, src_msg, dst_chat, dst_msg, group_id=None):
@@ -11,6 +11,7 @@ def find_mapping(src_chat, src_msg):
 
 def remove_mapping(src_chat, src_msg):
     delete_mapping(src_chat, src_msg)
+
 
 def list_mappings():
     return get_all_mappings()
