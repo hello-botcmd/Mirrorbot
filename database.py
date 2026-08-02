@@ -52,7 +52,9 @@ def delete_mapping(src_chat_id, src_msg_id):
             (src_chat_id, src_msg_id),
         )
         _conn.commit()
+
+
 def get_all_mappings():
-    """Return every mapping row (used by the delete poller)."""
+    """Every mapping row - used by the delete poller."""
     with _lock:
         return [dict(r) for r in _conn.execute("SELECT * FROM mappings ORDER BY id").fetchall()]
