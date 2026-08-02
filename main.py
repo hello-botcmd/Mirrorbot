@@ -9,7 +9,7 @@ from pyrogram.handlers import (
 )
 
 import config
-from handlers.delete import sync_delete_raw
+from handlers.delete import sync_delete_raw, poll_deleted
 from handlers.mirror import mirror, mirror_edit
 from handlers.ping import ping
 from handlers.vc import vc_raw_update, check_access
@@ -18,9 +18,6 @@ logging.basicConfig(level=logging.INFO)
 
 
 async def main():
-    # ------------------- BOT (mirror, edit sync, ping) -------------------
-    # NOTE: no DeletedMessagesHandler here - Telegram sends no deletion
-    # events to bot accounts. Delete sync lives on the user client below.
     bot = Client(
         "mirror_bot",
         api_id=config.API_ID,
@@ -39,11 +36,13 @@ async def main():
     await bot.start()
     print(f"Bot @{bot.me.username} is running (A -> B mirror active)")
 
-    # --------------- USER CLIENT (VC sync + delete sync) -----------------
-    session = (config.USER_SESSION or "").strip()
+    # Delete sync - works with bot rights alone
+    asyncio.create_task(poll_deleted(bot))
 
+    # Optional user client: adds instant delete events + VC sync
+    session = (config.USER_SESSION or "").strip()
     if session and len(session) < 300:
-        print("[VC] USER_SESSION looks too short/truncated - user features disabled")
+        print("[USER] USER_SESSION too short/truncated - user features disabled")
         session = ""
 
     if session:
@@ -54,19 +53,13 @@ async def main():
                 api_hash=config.API_HASH,
                 session_string=session,
             )
-            user.add_handler(RawUpdateHandler(vc_raw_update))      # VC mirror
-            user.add_handler(RawUpdateHandler(sync_delete_raw))    # delete mirror
+            user.add_handler(RawUpdateHandler(vc_raw_update))
+            user.add_handler(RawUpdateHandler(sync_delete_raw))
             await user.start()
-            print(f"User client @{user.me.username} started (VC sync + delete sync enabled)")
-
+            print(f"User client @{user.me.username} started (VC + instant delete enabled)")
             await check_access(user)
         except Exception as e:
-            print(f"[USER] User client failed to start, VC/delete sync disabled: {e}")
-    else:
-        print(
-            "[USER] USER_SESSION not set - VC sync AND delete sync disabled "
-            "(mirror/ping still work)"
-        )
+            print(f"[USER] User client failed to start, VC/instant-delete disabled: {e}")
 
     await asyncio.Future()
 
