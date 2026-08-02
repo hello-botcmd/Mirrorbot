@@ -84,3 +84,17 @@ async def vc_poll(client: Client, interval: float = 4.0):
         except Exception as e:
             print(f"[VC] poll loop error: {type(e).__name__}: {e}")
         await asyncio.sleep(interval)
+
+
+async def check_access(client: Client):
+    """Confirm the user account can see A and manage B."""
+    me = await client.get_me()
+    for name, cid in (("A", CHANNEL_A), ("B", CHANNEL_B)):
+        try:
+            member = await client.get_chat_member(cid, me.id)
+            print(f"[VC] User account in channel {name}: {member.status}")
+        except Exception:
+            print(
+                f"[VC] WARNING: user account is NOT a member/admin of channel {name} ({cid}). "
+                f"VC mirroring will not work."
+            )
