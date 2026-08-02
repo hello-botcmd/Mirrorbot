@@ -2,30 +2,25 @@ import asyncio
 import logging
 
 from pyrogram import Client, filters
-from pyrogram.handlers import (
-    EditedMessageHandler,
-    MessageHandler,
-    RawUpdateHandler,
-)
+from pyrogram.handlers import EditedMessageHandler, MessageHandler, RawUpdateHandler
 
 import config
 from handlers.delete import sync_delete_raw, poll_deleted
 from handlers.mirror import mirror, mirror_edit
 from handlers.ping import ping
-from handlers.vc import vc_raw_update, check_access
+from handlers.vc import vc_poll, check_access
 
 logging.basicConfig(level=logging.INFO)
 
 
 async def main():
-    # ------------------- BOT -------------------
+    # ------------------- BOT (mirror, delete poll, ping) -------------------
     bot = Client(
         "mirror_bot",
         api_id=config.API_ID,
         api_hash=config.API_HASH,
         bot_token=config.BOT_TOKEN,
     )
-
     bot.add_handler(
         MessageHandler(mirror, filters.chat(config.CHANNEL_A) & ~filters.service)
     )
@@ -37,14 +32,13 @@ async def main():
     await bot.start()
     print(f"Bot @{bot.me.username} is running (A -> B mirror active)")
 
-    # Delete sync - works with bot rights alone (polling)
+    # Delete sync - works with bot rights alone
     asyncio.create_task(poll_deleted(bot))
 
-    # ------------------- USER CLIENT (VC + instant delete) -------------------
+    # ------------------- USER (required for VC) -------------------
     session = (config.USER_SESSION or "").strip()
-
     if session and len(session) < 300:
-        print("[USER] USER_SESSION looks too short/truncated - user features disabled")
+        print("[USER] USER_SESSION truncated - run: python login.py")
         session = ""
 
     if session:
@@ -55,18 +49,17 @@ async def main():
                 api_hash=config.API_HASH,
                 session_string=session,
             )
-            user.add_handler(RawUpdateHandler(vc_raw_update))
-            user.add_handler(RawUpdateHandler(sync_delete_raw))
+            user.add_handler(RawUpdateHandler(sync_delete_raw))  # instant delete bonus
             await user.start()
-            print(f"User client @{user.me.username} started (VC + instant delete enabled)")
+            print(f"User client @{user.me.username} started")
+
             await check_access(user)
+            asyncio.create_task(vc_poll(user))   # <- the simple VC flow
         except Exception as e:
-            print(f"[USER] User client failed to start, VC/instant-delete disabled: {e}")
+            print(f"[USER] User client failed: {type(e).__name__}: {e}")
     else:
-        print(
-            "[USER] USER_SESSION not set - VC sync and instant delete are DISABLED "
-            "(poll-based delete still works)"
-        )
+        print("[USER] USER_SESSION not set -> VC mirror is OFF "
+              "(mirror/delete/ping still work)")
 
     await asyncio.Future()
 
