@@ -1,18 +1,5 @@
-#!/usr/bin/env python3
-"""
-login.py - Interactive OTP + 2FA session generator for mirror-bot.
-
-Generates a valid pyrogram session string for the *user account* used
-by the VC mirror feature, then writes it into config.py automatically.
-
-Run in a real terminal:  python login.py
-
-Handles:
-  - OTP code: retry on wrong code, auto-resend when expired
-  - 2FA (cloud password): hidden input, retry on wrong password
-  - FloodWait: waits and continues
-  - in_memory: no session files left on disk
-"""
+#!/#!/usr/bin/env python3
+"""Interactive OTP + 2FA session generator - writes USER_SESSION to config.py."""
 
 import asyncio
 import getpass
@@ -47,20 +34,18 @@ async def input_secret(prompt: str) -> str:
 
 
 def patch_config(session_string: str) -> None:
-    """Replace USER_SESSION in config.py with the freshly generated string."""
     try:
         with open(CONFIG_FILE, encoding="utf-8") as f:
             src = f.read()
-        new_line = f'USER_SESSION = "{session_string}"'
         patched = re.sub(
             r"^USER_SESSION\s*=.*$",
-            new_line,
+            f'USER_SESSION = "{session_string}"',
             src,
             count=1,
             flags=re.MULTILINE,
         )
-        if patched == src:  # line not found -> append it
-            patched = src.rstrip("\n") + "\n" + new_line + "\n"
+        if patched == src:
+            patched = src.rstrip("\n") + f'\nUSER_SESSION = "{session_string}"\n'
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             f.write(patched)
         print(f"[OK] USER_SESSION written to {CONFIG_FILE}")
@@ -74,12 +59,11 @@ async def main() -> int:
         "login_session",
         api_id=API_ID,
         api_hash=API_HASH,
-        in_memory=True,  # nothing survives on disk except the exported string
+        in_memory=True,
     )
     await client.connect()
     print("Connected to Telegram.\n")
 
-    # ---------- Step 1: phone number ----------
     while True:
         phone = await input_text("Phone number (intl format, e.g. +15551234567): ")
         phone = phone.replace(" ", "").replace("-", "")
@@ -96,7 +80,6 @@ async def main() -> int:
             print(f"  Telegram rate limit: wait {e.value}s, then retry.")
             await asyncio.sleep(e.value)
 
-    # ---------- Step 2: OTP + 2FA ----------
     attempts = 0
     while True:
         attempts += 1
@@ -107,7 +90,7 @@ async def main() -> int:
         code = await input_text("Enter the login code (OTP): ")
         try:
             await client.sign_in(phone, sent.phone_code_hash, code)
-            break  # logged in, no 2FA on this account
+            break
         except PhoneCodeInvalid:
             print("  Wrong code. Try again.")
         except PhoneCodeExpired:
